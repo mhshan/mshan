@@ -13,10 +13,14 @@ namespace TextImportUser163
 {
     public partial class Form1 : Form
     {
+       
         public Form1()
         {
             InitializeComponent();
         }
+        public bool threadAbort = false;
+        public bool threadSqlAbort = false;
+
         public static object obj
         {
             get;
@@ -36,8 +40,11 @@ namespace TextImportUser163
         public Queue<DataTable> redisDataTable = new Queue<DataTable>();
         public Queue<DataTable> listDataTable = new Queue<DataTable>();
         int thread=0;
+
         private void txtStart_Click(object sender, EventArgs e)
         {
+            threadAbort = false;
+            threadSqlAbort = false;
             thread = Convert.ToInt32(txtThread.Text);
             SqlDB.SqlConnString = txtDataBase.Text;
             SqlDB.ExecSql("update baseversion set Finish=0 where Finish=1");
@@ -50,6 +57,15 @@ namespace TextImportUser163
             }
             System.Threading.ThreadPool.QueueUserWorkItem(WriteData, "写进程");
             System.Threading.ThreadPool.QueueUserWorkItem(WriteRedis, "Redis保存");
+            Timer timer = new Timer();
+            timer.Interval = 1000 * 60 * 60 * 1;
+            timer.Tick += new EventHandler((s, ev) => {
+                this.Invoke(new Action(() =>
+                {
+                    txtNotice.Clear();
+                    txtNotice.ScrollToCaret();
+                }));
+            });
 
         }
 
@@ -92,6 +108,12 @@ namespace TextImportUser163
                 string[] lineArray = Regex.Split(line, "\r\n");
                 for (int i = version.Row; i < lineArray.Length; i++)
                 {
+                    if (threadAbort)
+                    {
+                        WriterFile(obj+"线程开始结束……………………");
+                        System.Threading.Thread.CurrentThread.Abort();
+
+                    }
                    SleepTempThread();
                    if(successNumber==0)
                        dataTable = CreateTable("User163","username", "password", "datatype");
@@ -122,7 +144,7 @@ namespace TextImportUser163
                         {
                             WriteDataQueue(dataTable);
                             
-                            SqlDB.ExecSql(string.Format("update baseversion set row={0} where versionname='{1}'", lineArray.Length, version.VersionName));
+                            SqlDB.ExecSql(string.Format("update baseversion set row={0} where versionname='{1}'", i, version.VersionName));
                             successNumber = 0;
                         }
                     }
@@ -218,7 +240,13 @@ namespace TextImportUser163
             }
             return count;
         }
-
+        //public int WriteSqlServerCount()
+        //{
+        //    dataLock.EnterReadLock();
+        //    Int32 count = listDataTable.Count;
+        //    dataLock.ExitReadLock();
+        //    return count = 0;
+        //}
         public bool ExistTempKey(Int32 redisIndex, string key, string value)
         {
             bool exist = ExistRedisKey(redisIndex,key, value);
@@ -357,6 +385,12 @@ namespace TextImportUser163
                 }
                 if (count == 0)
                 {
+                    if (threadAbort)
+                    {
+                        WriterFile("sql server写线程结束");
+                        threadSqlAbort = true;
+                        System.Threading.Thread.CurrentThread.Abort();
+                    }
                     System.Threading.Thread.Sleep(100);
                     continue;
                 }
@@ -389,6 +423,11 @@ namespace TextImportUser163
                 DataTable dataTable= GetRedisQueue();
                 if (dataTable == null)
                 {
+                    if (threadSqlAbort)
+                    {
+                        WriterFile("Redis写线程结束");
+                        System.Threading.Thread.CurrentThread.Abort();
+                    }
                     System.Threading.Thread.Sleep(1000);
                 }
                 else
@@ -400,10 +439,11 @@ namespace TextImportUser163
                     //}
 
                     WriteRedisKey(thread, dataTable);
-                    RemoveTempKey(dataTable);
+                    
                     redisLock.EnterWriteLock();
                     redisClient[thread].Save();
                     redisLock.ExitWriteLock();
+                    RemoveTempKey(dataTable);
                     dataTable.Dispose();
                     GC.Collect(2, GCCollectionMode.Forced);
                 }
@@ -467,9 +507,10 @@ namespace TextImportUser163
 
         private void btnStop_Click(object sender, EventArgs e)
         {
-            redisLock.EnterWriteLock();
+            threadAbort = true;
+            //redisLock.EnterWriteLock();
             //RedisOperation.Client.SaveAsync();
-            redisLock.ExitWriteLock();
+            //redisLock.ExitWriteLock();
         }
 
         private void btnClear_Click(object sender, EventArgs e)
