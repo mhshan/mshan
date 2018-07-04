@@ -14,7 +14,7 @@ namespace TextImportUser163
         }
         public RedisOperation()
         {
-            Client = new ServiceStack.Redis.RedisClient("127.0.0.1", 6379);
+            Client = new ServiceStack.Redis.RedisClient("192.168.113.8", 6379);
         }
         public void Dispose()
         {

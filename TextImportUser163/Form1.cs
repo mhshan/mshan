@@ -44,6 +44,8 @@ namespace TextImportUser163
             obj = new object();
             VersionLock = new object();
             redisClient = new ServiceStack.Redis.IRedisClient[thread+1];
+            redisClient[thread] = new RedisOperation().Client;
+
             for (int i = 1; i <= thread; i++)
             {
                 System.Threading.ThreadPool.QueueUserWorkItem(FileToDatabase1, i);
@@ -68,7 +70,7 @@ namespace TextImportUser163
             SqlDB.SqlConnString = txtDataBase.Text;
             //int i=26;
             Int32 redisIndex=(Int32)obj-1;
-            redisClient[redisIndex] = new ServiceStack.Redis.RedisClient("127.0.0.1", 6379);
+            redisClient[redisIndex] = new RedisOperation().Client;
             WriterFile(obj.ToString() + "线程开始同步");
             Version version = GetVerion("{0}_登录成功(1)_.txt");
             string fileFullPath = txtFilePath.Text + "\\" + version.VersionName;
@@ -211,7 +213,7 @@ namespace TextImportUser163
             dataLock.ExitWriteLock();
             while (count >3)
             {
-                System.Threading.Thread.Sleep(100);
+                System.Threading.Thread.Sleep(300);
                 dataLock.EnterWriteLock();
                 count = listDataTable.Count;
                 dataLock.ExitWriteLock();
@@ -381,7 +383,6 @@ namespace TextImportUser163
         } 
         public void WriteRedis(object obj)
         {
-            redisClient[thread] = new ServiceStack.Redis.RedisClient("127.0.0.1", 6379); 
             while(true)
             {
                 DateTime currentTime = DateTime.Now;
@@ -389,7 +390,7 @@ namespace TextImportUser163
                 DataTable dataTable= GetRedisQueue();
                 if (dataTable == null)
                 {
-                    System.Threading.Thread.Sleep(1000);
+                    System.Threading.Thread.Sleep(300);
                 }
                 else
                 {
