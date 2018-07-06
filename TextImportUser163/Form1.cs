@@ -55,6 +55,8 @@ namespace TextImportUser163
             {
                 System.Threading.ThreadPool.QueueUserWorkItem(FileToDatabase1, i);
             }
+            redisClient[thread] = new RedisOperation().Client;
+            redisClient[thread].RetryCount = 2;
             System.Threading.ThreadPool.QueueUserWorkItem(WriteData, "写进程");
             System.Threading.ThreadPool.QueueUserWorkItem(WriteRedis, "Redis保存");
             Timer timer = new Timer();
@@ -66,7 +68,7 @@ namespace TextImportUser163
                     txtNotice.ScrollToCaret();
                 }));
             });
-
+            timer.Start();
         }
 
         public DataTable CreateTable(string tableName,params string[] columnNames)
@@ -84,7 +86,7 @@ namespace TextImportUser163
             SqlDB.SqlConnString = txtDataBase.Text;
             //int i=26;
             Int32 redisIndex=(Int32)obj-1;
-            redisClient[redisIndex] = new ServiceStack.Redis.RedisClient("127.0.0.1", 6379);
+            redisClient[redisIndex] = new RedisOperation().Client;
             WriterFile(obj.ToString() + "线程开始同步");
             Version version = GetVerion("{0}_登录成功(1)_.txt");
             string fileFullPath = txtFilePath.Text + "\\" + version.VersionName;
@@ -122,6 +124,8 @@ namespace TextImportUser163
                     if (collection.Count > 0)
                     {
                         totaleNumber++;
+                        if (collection[0].Groups[1].Value.ToLower().Length > 50)
+                            continue;
                         if (!ExistTempKey(redisIndex,collection[0].Groups[1].Value.ToLower(), collection[0].Groups[2].Value) )
                         {
                             successNumber++;
@@ -143,7 +147,6 @@ namespace TextImportUser163
                         if (successNumber >= 10000)
                         {
                             WriteDataQueue(dataTable);
-                            
                             SqlDB.ExecSql(string.Format("update baseversion set row={0} where versionname='{1}'", i, version.VersionName));
                             successNumber = 0;
                         }
@@ -261,8 +264,6 @@ namespace TextImportUser163
         public bool WriteTempKey(string key, string value)
         {
             bool exist = false;
-           
-
             if (tempDic.ContainsKey(key))
             {
                 string[] json = tempDic[key];
@@ -325,37 +326,61 @@ namespace TextImportUser163
         {
             //redisLock.EnterWriteLock();
             //redisLock.EnterReadLock();
-            string valueArray =  redisClient[redisIndex].GetValue(key);
+            string[] valueArray =  redisClient[redisIndex].Get<string[]>(key);
+
             //redisLock.ExitReadLock();
             //redisLock.ExitWriteLock();
-            return valueArray != null;
+            bool pointer =valueArray != null&&valueArray.Length!=0;
+            if (pointer)
+            {
+                foreach (string s in valueArray)
+                {
+                    pointer = (s == value);
+                    if (pointer)
+                        break;
+                }
+            }      
+            return pointer;
+
         }
         public void WriteRedisKey(Int32 redisIndex,string key, string value)
         {
             //redisLock.EnterWriteLock();
-            string valueArray = redisClient[redisIndex].Get<string>(key);
+            string[] valueArray = null;
+            bool pointer = redisTempDic.ContainsKey(key);
+            if (pointer)
+                valueArray = redisTempDic[key];
+            else
+                valueArray = redisClient[redisIndex].Get<string[]>(key);
             string[] json =null;
-            if (string.IsNullOrEmpty(valueArray))
+            if (valueArray==null||valueArray.Length==0)
             {
                 json =new string[]{value};
             }
             else
             {
-                string[] temp = JsonDeSerializer<string[]>(valueArray);
-                json = new string[temp.Length + 1];
-                temp.CopyTo(json, 0);
-                json[temp.Length] = value;
+                //string[] temp = JsonDeSerializer<string[]>(valueArray);
+                json = new string[valueArray.Length + 1];
+                valueArray.CopyTo(json, 0);
+                json[valueArray.Length] = value;
             }
-
-            redisClient[redisIndex].Set<string>(key, JsonSerializer(json));
+            if (pointer)
+                redisTempDic[key] = json;
+            else
+                redisTempDic.Add(key, json);
+            //redisClient[redisIndex].Set<string>(key, JsonSerializer(json));
             //redisLock.ExitWriteLock();
-        }
+        } 
+        Dictionary<string, string[]> redisTempDic = new Dictionary<string, string[]>();
         public void WriteRedisKey(Int32 redisIndex,DataTable dataTable)
         {
-            redisLock.EnterReadLock();
+            //redisLock.EnterReadLock();
+           
             foreach (DataRow dataRow in dataTable.Rows)
-                WriteRedisKey(redisIndex, dataRow["username"].ToString().ToLower(), dataRow["password"].ToString());
-            redisLock.ExitReadLock();
+              WriteRedisKey(redisIndex, dataRow["username"].ToString().ToLower(), dataRow["password"].ToString());
+                      redisClient[redisIndex].SetAll(redisTempDic);
+            redisTempDic.Clear(); 
+            //redisLock.ExitReadLock();
         }
         public void WriteDataQueue(DataTable dataTable)
         {
@@ -407,31 +432,68 @@ namespace TextImportUser163
                 sbc.DestinationTableName = dt.TableName;
                 sbc.BulkCopyTimeout = 60000;
                 sbc.WriteToServer(dt);
+                
+
                 WriterFile(string.Format(obj.ToString() + "数据库插入结束，数量{2},用时{0},当前时间：{1}", DateTime.Now - currentTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), dt.Rows.Count));
                 sbc.Close();
                 sqlConn.Close();
                 AddRedisQueue(dt);
             }
         } 
+        public  Int32 maxTempNumber=100*10000;
+        public Int32 currentNumber = 0;
         public void WriteRedis(object obj)
         {
-            redisClient[thread] = new ServiceStack.Redis.RedisClient("127.0.0.1", 6379); 
+            
             while(true)
             {
                 DateTime currentTime = DateTime.Now;
                 WriterFile(string.Format(obj.ToString() + "数据库插入开始，数量:{1}，当前时间：{0}", currentTime.ToString("yyyy-MM-dd HH:mm:ss"), GetRedisQueueCount()));
                 DataTable dataTable= GetRedisQueue();
+               
                 if (dataTable == null)
                 {
+                    redisLock.EnterWriteLock();
+                    if (maxTempNumber <= currentNumber)
+                    {
+                        try
+                        {
+                            redisClient[thread].Save();
+                        }
+                        catch
+                        {
+
+                        }
+                        currentNumber = 0;
+                    }
+                    redisLock.ExitWriteLock();
                     if (threadSqlAbort)
                     {
-                        WriterFile("Redis写线程结束");
-                        System.Threading.Thread.CurrentThread.Abort();
+                        if (GetRedisQueueCount() == 0)
+                        {
+                            WriterFile("Redis写线程结束");
+                            System.Threading.Thread.CurrentThread.Abort();
+                        }
                     }
                     System.Threading.Thread.Sleep(1000);
                 }
                 else
                 {
+                    //if (maxTempNumber <= currentNumber)
+                    //{
+                    //    redisLock.EnterWriteLock();
+                    //    //try
+                    //    //{
+                    //    //    redisClient[thread].Save();
+                    //    //}
+                    //    //catch
+                    //    //{
+
+                    //    //}
+                    //    redisLock.ExitWriteLock();
+                    //    currentNumber = 0;
+                    //}
+                    currentNumber = dataTable.Rows.Count;
                     //foreach (DataRow dataRow in dataTable.Rows)
                     //{
                     //    WriteRedisKey(dataRow["username"].ToString().ToLower(), dataRow["password"].ToString());
@@ -439,10 +501,6 @@ namespace TextImportUser163
                     //}
 
                     WriteRedisKey(thread, dataTable);
-                    
-                    redisLock.EnterWriteLock();
-                    redisClient[thread].Save();
-                    redisLock.ExitWriteLock();
                     RemoveTempKey(dataTable);
                     dataTable.Dispose();
                     GC.Collect(2, GCCollectionMode.Forced);
@@ -488,17 +546,17 @@ namespace TextImportUser163
         
         }
 
-        public string JsonSerializer<T>(T t)
-        {
-            JavaScriptSerializer jsonSerialize = new JavaScriptSerializer();
-            return jsonSerialize.Serialize(t);
-        }
+        //public string JsonSerializer<T>(T t)
+        //{
+        //    JavaScriptSerializer jsonSerialize = new JavaScriptSerializer();
+        //    return jsonSerialize.Serialize(t);
+        //}
 
-        public T JsonDeSerializer<T>(string jsonString)
-        {
-            JavaScriptSerializer jsonSerialize = new JavaScriptSerializer();
-            return jsonSerialize.Deserialize<T>(jsonString);
-        }
+        //public T JsonDeSerializer<T>(string jsonString)
+        //{
+        //    JavaScriptSerializer jsonSerialize = new JavaScriptSerializer();
+        //    return jsonSerialize.Deserialize<T>(jsonString);
+        //}
         public void ObjectTest(StringBuilder sb)
         {
             //sb = new StringBuilder();
@@ -519,6 +577,11 @@ namespace TextImportUser163
             {
                 txtNotice.Clear();
             }));
+        }
+
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            //redisClient[thread].Save();
         }
 
         
