@@ -8,6 +8,7 @@ using System.Text;
 using System.Windows.Forms;
 using ServiceStack.Redis;
 using System.Web.Script.Serialization;
+using ServiceStack.Redis;
 namespace TextImportUser163
 {
     public partial class FrmRedis : Form
@@ -19,6 +20,7 @@ namespace TextImportUser163
 
         private void btnConnection_Click(object sender, EventArgs e)
         {
+            PooledRedisClientManager pool = new ServiceStack.Redis.PooledRedisClientManager();
             //string d = RedisOperation.Client.GetValue("12");
             string[] str = new string[] { "1","2"};
             string json=JsonSerializer(str);
