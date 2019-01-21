@@ -15,7 +15,7 @@ namespace TextImportUser163
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new FrmRedis());
+            Application.Run(new Form1());
             //RedisOperation.Dispose();
         }
     }

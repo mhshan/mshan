@@ -38,6 +38,13 @@ namespace TextImportUser163
         int thread=0;
         private void txtStart_Click(object sender, EventArgs e)
         {
+            obj = new object();
+            for (int i = 1; i <= 1; i++)
+            {
+                System.Threading.ThreadPool.QueueUserWorkItem(FileToDatabase, i);
+            }
+            return;
+
             thread = Convert.ToInt32(txtThread.Text);
             SqlDB.SqlConnString = txtDataBase.Text;
             SqlDB.ExecSql("update baseversion set Finish=0 where Finish=1");
@@ -48,13 +55,14 @@ namespace TextImportUser163
 
             for (int i = 1; i <= thread; i++)
             {
-                System.Threading.ThreadPool.QueueUserWorkItem(FileToDatabase1, i);
+                System.Threading.ThreadPool.QueueUserWorkItem(FileToDatabase, i);
             }
+            return;
             System.Threading.ThreadPool.QueueUserWorkItem(WriteData, "写进程");
             System.Threading.ThreadPool.QueueUserWorkItem(WriteRedis, "Redis保存");
 
         }
-
+        
         public DataTable CreateTable(string tableName,params string[] columnNames)
         {
             DataTable dt = new DataTable(tableName);
@@ -64,7 +72,67 @@ namespace TextImportUser163
             }
             return dt;
         }
+        public void FileToDatabase(object obj)
+        {
+            MongoDB.Driver.MongoClient client = new MongoDB.Driver.MongoClient("mongodb://localhost");
+            MongoDB.Driver.IMongoDatabase dataBase = client.GetDatabase("UserCenter");
+            MongoDB.Driver.IMongoCollection<UserInfo> userInfoDb = dataBase.GetCollection<UserInfo>("UserInfo");
+            int successNumber = 0;
+            int repeatNumber = 0;
+            int totaleNumber = 0;
+            for (int ver = 136; ver < 256; ver++)
+            {
+                WriterFile(obj.ToString() + "线程开始同步");
+                string versionName = string.Format("{0}_登录成功(1)_.txt",ver.ToString("D3"));
+                string fileFullPath = txtFilePath.Text + "\\" + versionName;
+                if (File.Exists(fileFullPath))
+                {
 
+                    fileFullPath = txtFilePath.Text + "\\" + versionName;
+                    WriterFile(obj.ToString() + "线程开始同步" + versionName);
+                    StreamReader sr = new StreamReader(fileFullPath, Encoding.Default);
+                    String line;
+                    DateTime currentTime = DateTime.Now;
+                    line = sr.ReadToEnd();
+                    sr.Close();
+
+                    string[] lineArray = Regex.Split(line, "\r\n");
+                    for (int i = 0; i < lineArray.Length; i++)
+                    {
+                      
+                        MatchCollection collection = Regex.Matches(lineArray[i], "^(.*)----(.*)$");
+                        if (collection.Count > 0)
+                        {
+                            UserInfo userInfo = new UserInfo { UserName = collection[0].Groups[1].Value, Password = collection[0].Groups[2].Value };
+                            totaleNumber++;
+                            //MongoDB.Driver.Builders<UserInfo>.Filter filter=
+                            //MongoDB.Driver.Builders<UserInfo>.Filter;
+                            MongoDB.Driver.FilterDefinitionBuilder<UserInfo> filerBuilder = new MongoDB.Driver.FilterDefinitionBuilder<UserInfo>();
+                            MongoDB.Driver.FilterDefinition<UserInfo> filter = filerBuilder.Where(c=> c.UserName==userInfo.UserName&&c.Password==userInfo.Password );
+                            if (userInfoDb.Count(filter)==0)
+                            {
+                                userInfoDb.InsertOne(userInfo);
+                                successNumber++;
+                            }
+                            else
+                                repeatNumber++;
+                            if (totaleNumber % 100000 == 0)
+                            {
+                                WriterFile(string.Format(obj.ToString() + "线程：共{0}，成功{1}，失败{2}，用时{3},当前时间：{4}",
+                                    totaleNumber, successNumber, repeatNumber, DateTime.Now - currentTime, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+                                currentTime = DateTime.Now;
+
+                            }
+                        }
+
+                    }
+                    
+                    lineArray = null;
+                    GC.Collect();
+                }
+            }
+            WriterFile(obj + "线程结束同步");
+        }
         public void FileToDatabase1(object obj)
         {
             SqlDB.SqlConnString = txtDataBase.Text;
@@ -400,6 +468,7 @@ namespace TextImportUser163
                     //    RemoveTempKey(dataRow["username"].ToString().ToLower(),dataRow["password"].ToString());
                     //}
 
+
                     WriteRedisKey(thread, dataTable);
                     RemoveTempKey(dataTable);
                     redisLock.EnterWriteLock();
@@ -483,7 +552,11 @@ namespace TextImportUser163
 
         
     }
-
+    public class UserInfo
+    {
+        public string UserName { get; set; }
+        public string Password { get; set; }
+    }
     public class Version
     {
         public string VersionName

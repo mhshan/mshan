@@ -27,7 +27,7 @@ namespace Mshan.Document.WinFormDatabase
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += new System.Threading.ThreadExceptionEventHandler(Application_ThreadException);
             AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(Application_UnhandledException);
-            Application.Run(new Form1());
+            Application.Run(new FrmXmlTest());
         }
         public static void Application_ThreadException(object sender, System.Threading.ThreadExceptionEventArgs e)
         {
