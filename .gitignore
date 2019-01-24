@@ -1,0 +1,15 @@
+﻿# My configurations:
+*.dll
+*.pdb
+*.exe
+*.txt
+*.pem
+*.zip
+*.manifest
+obj
+*.rar
+*.user
+*.settings
+*.suo
+*.bak
+*.docx
